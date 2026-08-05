@@ -1,0 +1,76 @@
+{
+  "timezoneOffsetHours": 8,
+
+  "sleepWindow": {
+    "_comment": "Minutes from local midnight. A night is attributed to the day it began.",
+    "weekdayStartMin": 30,
+    "weekendStartMin": 120,
+    "wakeMin": 510,
+    "weekendNights": [5, 6]
+  },
+
+  "quotas": {
+    "deepPerNight": 1,
+    "floatPerDay": 3,
+    "floatMinGapHours": 3,
+    "thoughtPerDay": 3,
+    "thoughtActiveCap": 20,
+    "deepMinChars": 500,
+    "floatMinChars": 50
+  },
+
+  "lifespan": {
+    "dreamHours": 72,
+    "dreamFadeStartHours": 60,
+    "struggleFromHours": 48,
+    "thoughtHalfLifeHours": 12,
+    "boostedHalfLifeHours": 72,
+    "thoughtFloor": 0.15,
+    "boostedFloor": 0.55,
+    "scoreCap": 0.75
+  },
+
+  "scoring": {
+    "_comment": "Flags are supplied by the writer, never self-rated by a model.",
+    "aboutOther": 0.25,
+    "novel": 0.2,
+    "hook": 0.1,
+    "emoDeviationHigh": 15,
+    "emoDeviationLow": 10,
+    "emoScoreHigh": 0.2,
+    "emoScoreLow": 0.15,
+    "emoMinSamples": 3,
+    "emoWindowDays": 7
+  },
+
+  "pool": {
+    "thoughtThreshold": 0.45,
+    "dreamThreshold": 0.55,
+    "greenhouseThreshold": 0.5
+  },
+
+  "grouping": {
+    "unlockEvery": 3,
+    "staleDays": 7,
+    "minOverlapGrams": 2
+  },
+
+  "fog": {
+    "clearAbove": 0.4,
+    "mistAbove": 0.2
+  },
+
+  "pulse": {
+    "_comment": "Any service returning {dimensions:{name:number}}. Set url to null to disable emotional weighting.",
+    "url": "http://127.0.0.1:8804/state"
+  },
+
+  "stopwords": [
+    "我们", "你们", "他们", "什么", "这个", "那个", "一个", "没有",
+    "不是", "就是", "还是", "但是", "因为", "所以", "如果", "可以",
+    "已经", "自己", "今天", "昨天", "明天", "现在", "时候", "不会",
+    "知道", "觉得", "有点", "一下"
+  ],
+
+  "stopwordsNote": "Add terms of address and personal nicknames here. Never hardcode them in src/."
+}
