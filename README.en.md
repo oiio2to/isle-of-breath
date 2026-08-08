@@ -168,6 +168,18 @@ The topic pool is the forest's only exposure to the conversation layer. Admissio
 
 Entries already `spoken`, `suppressed`, or `orphaned` never enter.
 
+### The Proust channel: how the conversation layer consumes the pool
+
+The topic pool only says *what the forest has placed in front of the conversation layer*. Being placed there is not the same as being remembered — **how the conversation layer consumes the pool decides whether "remembering" is mechanical or human.** The design borrows Proust's image directly: the madeleine dipped in tea that unlocks an entire childhood. Two legs:
+
+**Madeleine — triggered by the current input.** The user's latest message is split into 2-grams and scored against every pool entry by Dice similarity; past a floor, the closest one is injected — "this reminds you of…". Not a retrieval command, an association, stirred by what the user said. Why 2-gram Dice and not embeddings: the host has no GPU. 2-gram Dice is zero-dependency, pure-CPU, interpretable, and calibrated on a real conversation pool (unrelated topics land at 0~0.13, genuine resonance at 0.25~0.67, so the floor sits at 0.22). Four gates (minimum interval, trigger probability, similarity floor, recency dedup) keep it from degrading into a parrot.
+
+**Random surfacing — untriggered drift.** No input trigger; a memory simply drifts past during idle moments, weighted by the warmth of recent turns but with enough noise floor to occasionally surface something entirely unrelated. It models "remembering something for no reason."
+
+**The feedback loop.** The key piece: **pupil-glimmers and dream-streams that were surfaced in the forest and qualified for the topic pool feed back into the Proust pool automatically.** Otherwise those "moments of remembering" sink after being spoken once and never return on their own. The loop lets them be triggered by the user's words and drift up at random from then on — the forest's "recall" and Proust's "remembrance" are wired into one circuit instead of two isolated mechanisms.
+
+This line is entirely invisible in the UI, but it is the core of "like someone with an inner life, not a machine that only reacts when poked."
+
 ### The sleep window
 
 Dream-stream writes are gated by a sleep window, and a "night" is attributed to the day it began:
