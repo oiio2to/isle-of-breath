@@ -8,14 +8,14 @@
 
 ---
 
-## What it is
+## 🌊 What it is
 
 A two-stage **short-term → consolidation** memory pipeline for a single-user, long-running conversational AI, plus a clean boundary to whatever long-term store you use.
 It does not do vector retrieval and it does not accumulate. What it does: **give every memory a lifespan, a write quota, a rule that only being spoken aloud extends life, and a final consolidation step that must pass through a human.**
 
 Zero dependencies, Node 18+, two CommonJS modules, JSON-on-filesystem storage. Mount it on any HTTP dispatcher.
 
-## What it does (one concrete example)
+## 🌱 What it does (one concrete example)
 
 Monday afternoon, the model has a thought during a conversation and writes it into the forest:
 
@@ -39,7 +39,7 @@ A thought that was never spoken and never recurred three times is orphaned after
 
 ---
 
-## The problem
+## 🧱 The problem
 
 Most long-term memory schemes for AI share one structure: vectorise the conversation, store it, retrieve by similarity. They share one property: **they only grow.**
 
@@ -55,7 +55,7 @@ So the central mechanism is not retrieval. It is **selection, decay, and death.*
 
 ---
 
-## Structure
+## 🗺️ Structure
 
 A three-layer pipeline: emergence → consolidation → long-term.
 
@@ -93,23 +93,23 @@ One sentence for the division of labour: **the forest decides what is worth reca
 
 ---
 
-## Seven design principles
+## 📜 Seven design principles
 
 These are the real content. The implementation is one concrete answer to them.
 
-### 1. Memories must die
+### 1. 🍂 Memories must die
 
 Every entry has an explicit lifespan. Dreams: 72 h, then deleted — no archive, no copy. Thoughts: orphaned at 12 h, hard-deleted 30 days after archiving.
 
 Death is not a resource limit. It is the selection mechanism. **A system that can keep everything has no judgement.**
 
-### 2. Writes are quota'd
+### 2. 🎚️ Writes are quota'd
 
 Thoughts: 3 per day. Deep dreams: 1 per night. Floating dreams: 3 per day, ≥3 h apart.
 
 Quotas force choice. Without them memory degrades into a log — recording everything means nothing matters. The quota makes the system answer, every day: what are the three things most worth keeping?
 
-### 3. Only what is spoken survives
+### 3. 💬 Only what is spoken survives
 
 Entries carry a `spoken` flag, set when the memory is actually used in conversation. It is the only life-extension path:
 
@@ -119,7 +119,7 @@ Entries carry a `spoken` flag, set when the memory is actually used in conversat
 
 Orphaned is not failure. It is one of the most informative states in the system.
 
-### 4. Consolidation passes through a human
+### 4. 🫴 Consolidation passes through a human
 
 **Distil automatically, root by hand.**
 
@@ -127,13 +127,13 @@ Entries leaving the forest migrate to the greenhouse on their own, but moving fr
 
 This is the core anti-hallucination measure. Let the model decide what deserves long-term memory and the store fills with its own echo. The human step costs one click; the return is that every long-term entry was confirmed by a real person.
 
-### 5. PASS is allowed
+### 5. 🌙 PASS is allowed
 
 A scheduled nudge fires during the sleep window and after long idle periods, asking whether a memory should be written. **It accepts PASS as an answer.**
 
 This looks trivial and is the single most important defence in the architecture. A scheduled task that must produce output will produce filler. Allowing a quiet exit means every forest entry exists because there was something to remember, not because a timer fired.
 
-### 6. Significance comes from external signals, not self-assessment
+### 6. 📡 Significance comes from external signals, not self-assessment
 
 ```js
 score = min(0.75,
@@ -148,7 +148,7 @@ score = min(0.75,
 
 The three flags are still filled by the writer (the model), but they are **factual questions** (is this about the other person? is it the first time?), not value judgements (is it important?). `emoScore` is the one input the model cannot touch: **what is written in an emotionally unusual moment matters more**, and that call is made by an external state machine.
 
-### 7. The struggle before fading
+### 7. 🕯️ The struggle before fading
 
 Dreams start fading at hour 60 and clear at 72. Between hours 48 and 72, an unspoken dream enters **struggle**: it bypasses the score threshold, forces its way into the pool, and sorts to the top.
 
@@ -156,7 +156,7 @@ It models "almost forgotten, but still want to say it". Without it, low-score me
 
 ---
 
-## Key mechanisms
+## ⚙️ Key mechanisms
 
 ### Cross-day grouping
 
@@ -221,7 +221,7 @@ Both happen inside `prune()`, which runs before every request; the greenhouse's 
 
 ---
 
-## What actually happens once it is installed
+## 🔭 What actually happens once it is installed
 
 1. **Switching windows does not break continuity.** A new session opens with the present already in place: what is floating in the pool, the shape of the emotional state, which hooks are open. Recent messages belong to a window; everything else is server-side state that belongs to the person.
 2. **It brings things up on its own.** The pool is active, not passive. It pushes "the three to five things most worth saying now" into the conversation layer — including the dream from three days ago that is about to fade. "You mentioned that exhibition the other day — what happened?" was never asked for; it was a 48-hour-old, 0.62-score entry in struggle, sorted first.
@@ -232,7 +232,7 @@ Both happen inside `prune()`, which runs before every request; the greenhouse's 
 
 ---
 
-## What it costs, honestly
+## ⚖️ What it costs, honestly
 
 - **It takes time to show a difference.** Everything operates on 12-hour-to-7-day scales. For a week it is indistinguishable from a plain memory store.
 - **You have to water.** Ignore the queue and long-term memory stays empty. Low participation cost, but not zero.
@@ -242,7 +242,7 @@ Both happen inside `prune()`, which runs before every request; the greenhouse's 
 
 ---
 
-## Quick start
+## 🚀 Quick start
 
 ```bash
 git clone https://github.com/oiio2to/isle-of-breath
@@ -269,7 +269,7 @@ Full endpoint reference: [docs/api.md](docs/api.md)
 
 ---
 
-## Repository layout
+## 📁 Repository layout
 
 ```
 README.md / README.en.md   why it is designed this way (zh / en)
@@ -288,7 +288,7 @@ test/forest.test.js        node:test — sleep window, scoring, decay, grouping,
 
 ---
 
-## External dependencies · not included
+## 🔌 External dependencies · not included
 
 | Component | Role | Notes |
 |---|---|---|
@@ -298,7 +298,7 @@ test/forest.test.js        node:test — sleep window, scoring, decay, grouping,
 
 ---
 
-## Where it fits
+## 🧭 Where it fits
 
 **Good for:** single-user or small-scale long-running conversational AI; settings that value memory quality over quantity; systems that accept a human in the loop.
 
@@ -308,7 +308,7 @@ The trade is explicit: **scalability for trustworthiness.**
 
 ---
 
-## License
+## 📄 License
 
 - **Code** (`src/`, `example/`): [GNU AGPL-3.0](LICENSE). Use, modify, distribute, commercially included. If you modify it and serve it over a network, publish your changes under AGPL too.
 - **Documentation** (`docs/`, READMEs): [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/).
@@ -317,13 +317,13 @@ The ideas here are not protected and are not meant to be. Reimplementing them yo
 
 ---
 
-## Origin
+## 🏡 Origin
 
 Isle of Breath is the memory layer of [NoxVerna](https://github.com/oiio2to/nox-verna), a self-hosted long-term AI conversation system. It evolved through months of daily use — the parameters were tuned, not designed.
 
 ---
 
-## Related work
+## 🤝 Related work
 
 [kimi-core](https://github.com/marikagura/kimi-core) (marikagura, AGPL-3.0) is another memory engine for one-to-one long-term relationships. Its route is different — hybrid retrieval, pgvector, event sourcing, reproducible retrieval evals — but it converged independently on the same key judgement:
 
