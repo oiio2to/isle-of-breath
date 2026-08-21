@@ -2,129 +2,157 @@
 
 **A memory architecture for long-term conversational AI, designed to forget.**
 
-[中文 →](README.md)
+[中文 →](README.md) · [Architecture →](ARCHITECTURE.md) · [Methodology →](docs/methodology.md) · [API →](docs/api.md) · [Roadmap →](ROADMAP.md)
 
-**For the whole picture, read [ARCHITECTURE.md](ARCHITECTURE.md)** — how the tiers interconnect, and the full life cycle of a single memory. What follows are the parts.
+*ARCHITECTURE.md and the docs are written in Chinese, with the formulas, tables and code in common. This README is a full English equivalent of the Chinese one.*
 
-[Methodology →](docs/methodology.md) · [API →](docs/api.md)
+---
+
+## What it is
+
+A two-stage **short-term → consolidation** memory pipeline for a single-user, long-running conversational AI, plus a clean boundary to whatever long-term store you use.
+It does not do vector retrieval and it does not accumulate. What it does: **give every memory a lifespan, a write quota, a rule that only being spoken aloud extends life, and a final consolidation step that must pass through a human.**
+
+Zero dependencies, Node 18+, two CommonJS modules, JSON-on-filesystem storage. Mount it on any HTTP dispatcher.
+
+## What it does (one concrete example)
+
+Monday afternoon, the model has a thought during a conversation and writes it into the forest:
+
+```
+POST /api/forest/thought
+{ "text": "They mentioned wanting to see that exhibition, but not when", "aboutOther": true, "novel": true, "hook": true }
+```
+
+| When | What happens |
+|---|---|
+| Mon 15:00 | Written. Score = 0.25 + 0.20 + 0.10 = **0.55** (plus 0.2 if the emotional state machine is >15 off its 7-day mean at this moment; capped at 0.75). Enters the topic pool. |
+| Mon 23:00 | 8 h in, 12 h half-life, current value has decayed to 0.40 — the UI shows it half-fogged and the conversation layer receives truncated text. |
+| Tue 03:00 | 12 h up. Not spoken → **orphaned**. Still visible, but out of the pool. |
+| Tue 20:00 | The model writes "they brought up the exhibition twice today". Topic match → **cross-day grouping**. Both entries get a 72 h half-life and a 0.55 floor; Monday's orphan flag is lifted. |
+| Wed 21:00 | A third entry on the same topic. Group hits 3 → **unlocked**; the group enters the pool as one item, near the top. |
+| Wed 21:30 | It actually gets said in conversation: "That exhibition — did you pick a day?" → marked `spoken`. Dreams stop fading, thoughts get their extension, the group's unlock resets. |
+| A week later | Pushed out of the 20-entry active cap → archived. Score ≥ 0.5, so at that moment the whole card **migrates to the greenhouse** as `pending`. |
+| Any time | A human opens the greenhouse and clicks "water" → `rooted`. Only after that does it get delivered to long-term storage. Unclicked, it waits. "Drop", and it is gone. |
+
+A thought that was never spoken and never recurred three times is orphaned after 12 h and hard-deleted 30 days after archiving. **There is no "keep everything forever" setting.**
 
 ---
 
 ## The problem
 
-Most long-term memory systems for AI follow the same shape: vectorize the conversation, store it, retrieve by similarity. They share one property — **they only grow**.
+Most long-term memory schemes for AI share one structure: vectorise the conversation, store it, retrieve by similarity. They share one property: **they only grow.**
 
-Which means they eventually hit the same wall:
+So they all hit the same wall:
 
-- The more memories exist, the worse retrieval gets. After three months the model "remembers" too many things to rank meaningfully; the important and the trivial sit in the same similarity band.
-- Letting the model judge "is this important?" creates self-reinforcement. Models favor remembering what they themselves said. A few rounds in, the store is full of the model's own echoes.
-- Scheduled memory generation produces fake memories. If something must be written when the timer fires, you get entries like "today was calm" — zero information, diluting the things that actually happened.
+- The more is stored, the worse retrieval gets. After three months the model "remembers" too much to rank; the important and the trivial sit in the same similarity band.
+- Letting the model decide "is this worth remembering?" self-reinforces. Models prefer to remember what they themselves said; a few cycles later the store is full of the model's own echo.
+- Scheduled memory generation produces fake memories. Something has to be written when the timer fires, so "today was calm" gets written, diluting what actually happened.
 
-Isle of Breath starts from the opposite premise: **the value of memory is not in how much you keep, but in what is allowed to remain.**
+Isle of Breath starts from the opposite premise: **the value of memory is not in how much is stored but in what is allowed to remain.**
 
-So the core mechanisms here are not retrieval. They are **selection, decay, and death.**
+So the central mechanism is not retrieval. It is **selection, decay, and death.**
 
 ---
 
 ## Structure
 
-Three tiers, mapping to *short-term emergence → consolidation → long-term fixation*:
+A three-layer pipeline: emergence → consolidation → long-term.
 
 ```
    ┌──────────────────────────────────────────────┐
-   │  Forest of Eyelids                            │
-   │  short-term · quota'd · time-limited · fades  │
+   │  Forest of Eyelids 眼睑森林                   │
+   │  short-term · quota'd · mortal · fades        │
    │                                              │
-   │  dream-stream         pupil-glimmer           │
-   │  dreams in the        waking thought-flashes  │
-   │  sleep window                                 │
-   │  1/night · 72h        3/day · 12h             │
+   │  dream-stream 寐川    pupil-glimmer 瞳荧      │
+   │  dreams in sleep       waking thought-flashes │
+   │  1 / night · 72h       3 / day · 12h          │
    └────────────────┬─────────────────────────────┘
-                    │  expired + significance ≥ 0.5
-                    │  (migrated before death; the rest just vanish)
+                    │  on exit, score ≥ 0.5
+                    │  (migrated before death; the rest vanish)
                     ▼
    ┌──────────────────────────────────────────────┐
-   │  Greenhouse                                   │
-   │  consolidation · distill auto, root by hand   │
-   │                                              │
+   │  Greenhouse 骨骼温室                          │
+   │  consolidation · distil automatically,       │
+   │                  root by hand                 │
    │  pending ──water──▶ rooted ──▶ cellar         │
-   │           (manual)                            │
+   │           (human)                             │
    └────────────────┬─────────────────────────────┘
                     │  after human confirmation
                     ▼
    ┌──────────────────────────────────────────────┐
-   │  External Long-Term Store                     │
-   │  event buckets · semantic search · own decay  │
-   │  (not included — see External dependencies)   │
+   │  External long-term store                    │
+   │  event buckets · semantic search · own decay │
+   │  (not part of this project)                  │
    └──────────────────────────────────────────────┘
 ```
 
-An emotional state machine (Pulse Garden) connects laterally into the forest. It stores no memories, but stamps each entry with the emotional tone at write time and feeds into the significance calculation.
+An emotional state machine (Pulse Garden) plugs in sideways: it stores no memories, but stamps each entry with the emotional tone at write time and contributes to the significance score.
+
+One sentence for the division of labour: **the forest decides what is worth recalling, the greenhouse decides what is worth remembering, the long-term layer makes sure what is remembered can still be found.**
 
 ---
 
 ## Seven design principles
 
-These are the actual content of the architecture. The implementation is just one solution to them.
+These are the real content. The implementation is one concrete answer to them.
 
-### 1. Memory must be able to die
+### 1. Memories must die
 
-Every entry has a defined lifespan. Dream-streams live 72 hours; pupil-glimmers 12 hours (extended to 72 if discussed). On expiry they are cleared — no archive, no copy.
+Every entry has an explicit lifespan. Dreams: 72 h, then deleted — no archive, no copy. Thoughts: orphaned at 12 h, hard-deleted 30 days after archiving.
 
-Death is not a resource constraint. It is the selection mechanism. **A system that can keep everything forever has, by definition, no judgment.**
+Death is not a resource limit. It is the selection mechanism. **A system that can keep everything has no judgement.**
 
 ### 2. Writes are quota'd
 
-Three pupil-glimmers per day. One deep dream per night; three floating dreams per day with a minimum 3-hour gap.
+Thoughts: 3 per day. Deep dreams: 1 per night. Floating dreams: 3 per day, ≥3 h apart.
 
-Quotas force tradeoffs. Without them, memory degrades into a log — record everything and nothing is important. A quota forces the system to answer, today: what are the three things most worth keeping?
+Quotas force choice. Without them memory degrades into a log — recording everything means nothing matters. The quota makes the system answer, every day: what are the three things most worth keeping?
 
-### 3. Speaking is what keeps a memory alive
+### 3. Only what is spoken survives
 
-Entries carry a `spoken` flag, set when the memory is actually brought into conversation. This is the only life-extension mechanism:
+Entries carry a `spoken` flag, set when the memory is actually used in conversation. It is the only life-extension path:
 
-- A spoken dream-stream stops fading and survives to the end of its window
-- A spoken pupil-glimmer's half-life goes from 12h to 72h, and its floor from 0.15 to 0.55
-- Anything unspoken at expiry becomes **orphaned** — an explicit state meaning "thought about, never said"
+- A spoken dream stops fading and stays past its clearing window
+- A spoken thought's half-life goes 12 h → 72 h, its floor 0.15 → 0.55
+- Anything unspoken at its deadline becomes **orphaned** — an explicit state meaning "thought about, never said"
 
-Orphaned is not a failure state. It is one of the most informative states in the system.
+Orphaned is not failure. It is one of the most informative states in the system.
 
-### 4. Consolidation must pass through human hands
+### 4. Consolidation passes through a human
 
-**Distillation is automatic; taking root is manual.**
+**Distil automatically, root by hand.**
 
-Expired forest entries migrate into the greenhouse automatically, but moving from greenhouse to long-term memory requires a human action (watering / rooting). The text can be rewritten at that moment.
+Entries leaving the forest migrate to the greenhouse on their own, but moving from greenhouse to long-term memory takes a human action (water / root). The human can rewrite the text at that moment.
 
-This is the core anti-hallucination measure. Let a model decide what deserves long-term storage and within a few rounds the store fills with its own echoes. Human review costs one click; the return is that every long-term memory has been confirmed by a person.
+This is the core anti-hallucination measure. Let the model decide what deserves long-term memory and the store fills with its own echo. The human step costs one click; the return is that every long-term entry was confirmed by a real person.
 
-### 5. PASS must be allowed
+### 5. PASS is allowed
 
-The scheduled nudge (`forest-nudge`) fires inside the sleep window and after long gaps in interaction, asking whether a memory should be written. **It is allowed to return PASS.**
+A scheduled nudge fires during the sleep window and after long idle periods, asking whether a memory should be written. **It accepts PASS as an answer.**
 
-This looks trivial and is the single most important defense in the architecture. A scheduled job that must produce output will produce filler. Allowing a quiet exit means every entry in the forest exists because there was genuinely something to record — not because a timer fired.
+This looks trivial and is the single most important defence in the architecture. A scheduled task that must produce output will produce filler. Allowing a quiet exit means every forest entry exists because there was something to remember, not because a timer fired.
 
 ### 6. Significance comes from external signals, not self-assessment
-
-The `score` is computed from structured flags plus emotional deviation, never from the model rating itself:
 
 ```js
 score = min(0.75,
     (aboutOther ? 0.25 : 0)   // about the other person, not about itself
   + (novel    ? 0.20 : 0)   // first occurrence
-  + (hook     ? 0.10 : 0)   // carries an unresolved hook
+  + (hook     ? 0.10 : 0)   // an unresolved thread
   + emoScore                // emotional deviation, below
 )
 ```
 
-`emoScore` measures how far the dominant emotional dimension at write time deviates from its seven-day mean: deviation >15 scores 0.2, 10–15 scores 0.15, below 10 scores 0. Fewer than three samples scores 0.
+`emoScore` is the deviation of the dominant emotional dimension from its 7-day mean at write time: >15 → 0.2, 10–15 → 0.15, <10 → 0. Fewer than three samples → 0.
 
-In other words: **things written during emotionally unusual moments matter more** — and that judgment is made numerically, where the model cannot weight itself.
+The three flags are still filled by the writer (the model), but they are **factual questions** (is this about the other person? is it the first time?), not value judgements (is it important?). `emoScore` is the one input the model cannot touch: **what is written in an emotionally unusual moment matters more**, and that call is made by an external state machine.
 
 ### 7. The struggle before fading
 
-Dream-streams begin fading at hour 60 and clear at 72. But between hours 48 and 72, an unspoken entry enters a **struggle** state — bypassing the significance threshold, forcing entry into the topic pool, and sorting to the top.
+Dreams start fading at hour 60 and clear at 72. Between hours 48 and 72, an unspoken dream enters **struggle**: it bypasses the score threshold, forces its way into the pool, and sorts to the top.
 
-This models a real psychological moment: *almost forgotten, but still wanting to say it.* Without this rule, low-significance memories die quietly — and people very often only remember to mention something right at the edge of forgetting it.
+It models "almost forgotten, but still want to say it". Without it, low-score memories die quietly — and people often only remember to mention something at the edge of forgetting it.
 
 ---
 
@@ -132,18 +160,20 @@ This models a real psychological moment: *almost forgotten, but still wanting to
 
 ### Cross-day grouping
 
-New pupil-glimmers are compared against history for topic overlap (CJK bigrams plus Latin words, stopwords removed; two content-word matches means "same thing").
+A new thought is topic-matched against active history (CJK bigrams + Latin words, stopwords removed; two content grams in common = same topic).
 
-- Same day, repeated → merged into a count, no quota consumed
-- Different day, repeated → auto-grouped, group members collectively extended
-- Group reaches a multiple of 3 → **unlocked**, whole group enters the topic pool
-- No new members for 7 days, or 7 days since creation without reaching 3 → whole group sinks
+- Same day → merged, count incremented, **no quota consumed**
+- Different day → grouped; the group gets the 72 h half-life and 0.55 floor, and orphan flags on members still within 72 h are lifted
+- Every multiple of 3 → **unlocked**: members skip the score gate; **one seat per group** in the pool (newest entry, with `groupSize`)
+- Starved for 7 days (unlocked or not), or 7 days old without ever unlocking → the whole group sinks
 
-The point: **a recurring thought is itself the signal.** Something thought three times across three days is more worth saying than something thought once, deeply.
+The point: **recurrence is itself a signal.** Thinking about something three times in three days says more than thinking about it once, deeply.
 
-### Decay and fogging
+The cost is just as clear: bigram overlap is a crude similarity. High-frequency collocations the stopword list misses ("she said", "suddenly remembered") chain unrelated entries into one big group. That is not hypothetical — it happened in production; see [Methodology · §7](docs/methodology.md#七审计记录).
 
-Decay is computed at read time and never written to disk:
+### Decay and fog
+
+Decay is computed at read time and never persisted:
 
 ```js
 floor = pressedTo ?? (boosted ? 0.55 : 0.15)
@@ -151,105 +181,64 @@ hl    = boosted ? 72h : 12h
 cur   = floor + max(0, score - floor) * 0.5 ^ (age / hl)
 ```
 
-`cur` maps to three display tiers: `> 0.4` clear / `0.4–0.2` misted / `≤ 0.2` nearly blank.
+`cur` maps to three tiers: `> 0.4` clear / `0.4–0.2` mist / `≤ 0.2` white. Memories fade rather than vanish — and in the mist tier the model also receives truncated text.
 
-In the interface, memories become gradually illegible rather than disappearing. This isn't only visual — at the misted tier the model also receives truncated text.
+### Topic pool
 
-### The topic pool
+The forest's only exposure to the conversation layer.
 
-The topic pool is the forest's only exposure to the conversation layer. Admission:
-
-| Type | Threshold |
+| Kind | Admission |
 |---|---|
-| Pupil-glimmer | `cur ≥ 0.45` and within lifespan |
-| Pupil-glimmer (group unlocked) | admitted directly, no threshold |
-| Dream-stream | `score ≥ 0.55` |
-| Dream-stream (struggling) | admitted directly, sorted to top |
+| Thought | `cur ≥ 0.45`, within its effective half-life, not orphaned |
+| Thought (unlocked group) | score gate waived; still not orphaned; one seat per group |
+| Dream | `score ≥ 0.55` |
+| Dream (struggle) | admitted, sorted first |
 
-Entries already `spoken`, `suppressed`, or `orphaned` never enter.
+`spoken`, `suppressed` and `orphan` entries never enter.
 
-### The Proust channel: how the conversation layer consumes the pool
+### Sleep window
 
-The topic pool only says *what the forest has placed in front of the conversation layer*. Being placed there is not the same as being remembered — **how the conversation layer consumes the pool decides whether "remembering" is mechanical or human.** The design borrows Proust's image directly: the madeleine dipped in tea that unlocks an entire childhood. Two legs:
-
-**Madeleine — triggered by the current input.** The user's latest message is split into 2-grams and scored against every pool entry by Dice similarity; past a floor, the closest one is injected — "this reminds you of…". Not a retrieval command, an association, stirred by what the user said. Why 2-gram Dice and not embeddings: the host has no GPU. 2-gram Dice is zero-dependency, pure-CPU, interpretable, and calibrated on a real conversation pool (unrelated topics land at 0~0.13, genuine resonance at 0.25~0.67, so the floor sits at 0.22). Four gates (minimum interval, trigger probability, similarity floor, recency dedup) keep it from degrading into a parrot.
-
-**Random surfacing — untriggered drift.** No input trigger; a memory simply drifts past during idle moments, weighted by the warmth of recent turns but with enough noise floor to occasionally surface something entirely unrelated. It models "remembering something for no reason."
-
-**The feedback loop.** The key piece: **pupil-glimmers and dream-streams that were surfaced in the forest and qualified for the topic pool feed back into the Proust pool automatically.** Otherwise those "moments of remembering" sink after being spoken once and never return on their own. The loop lets them be triggered by the user's words and drift up at random from then on — the forest's "recall" and Proust's "remembrance" are wired into one circuit instead of two isolated mechanisms.
-
-This line is entirely invisible in the UI, but it is the core of "like someone with an inner life, not a machine that only reacts when poked."
-
-### The sleep window
-
-Dream-stream writes are gated by a sleep window, and a "night" is attributed to the day it began:
+Dream writes are bound to a sleep window, and "a night" belongs to the day it began:
 
 ```
-Weekdays   00:30 – 08:30
-Weekends   02:00 – 08:30   (Friday and Saturday nights)
+weekdays  00:30 – 08:30
+weekends  02:00 – 08:30   (Friday and Saturday nights)
 ```
 
-Deep dreams may only be written inside the window, one per night, minimum 500 characters. Floating dreams only while awake, three per day, minimum 3-hour gap, minimum 50 characters.
+Deep dreams only inside the window, one per night, ≥500 characters. Floating dreams only while awake, 3 per day, ≥3 h apart, ≥50 characters. The minimums are deliberate: **no length, no consolidation.** A one-line "dream" is a label.
 
-The length floors are deliberate: **without length there is no consolidation.** A one-line "dream" isn't a dream — it's a tag.
+### Two exits, two endings
+
+| | dream | thought |
+|---|---|---|
+| Lifespan | 72 h, then **deleted** | **orphaned** after 12 h (72 h if grouped / spoken), still visible |
+| Last leg | struggle at 48–72 h | pushed out of the 20-entry cap, or its group dies → archived |
+| Greenhouse hand-off | the moment before deletion | the moment of archiving |
+| Condition | `score ≥ 0.5`, not migrated before | same |
+| Gone for good | 72 h | 30 days after archiving |
+
+Both happen inside `prune()`, which runs before every request; the greenhouse's own `sweep` is only a safety net.
 
 ---
 
-## What it actually feels like once it's running
+## What actually happens once it is installed
 
-Everything above is mechanism. This section is about results.
-
-### 1. Switching windows doesn't break continuity
-
-The most immediate payoff. Close a session, open a new one, and the first message already carries the present: what's floating in the topic pool, what shape the eight emotional dimensions are in, which hooks are still open. No need to say "so, as we were discussing…" to re-sync.
-
-This falls out of the layering: **recent messages are window-scoped; everything else is global or server-side state.** The forest, the greenhouse, and the emotional state don't belong to any window — they belong to the person.
-
-### 2. It brings things up on its own
-
-Ordinary memory systems are passive: you ask, it retrieves, it answers.
-
-The topic pool is active. Every turn it pushes the three-to-five things most worth saying right now into the conversation layer — including that dream-stream from three days ago that's about to fade and was never spoken. So the conversation naturally produces:
-
-> "That exhibition you mentioned the other day — did you ever go?"
-
-That line wasn't prompted. It's an entry written 48 hours ago, significance 0.62, now in the struggle state, sorted to the top of the pool.
-
-### 3. Forgetting is visible
-
-Memories don't vanish; they blur first. Watching an entry go from clear to misted to nearly blank is a three-day process. And the model receives the truncated text too — **it is forgetting the same thing you are, on the same schedule.**
-
-An unanticipated effect: seeing something about to blank out makes you want to say it. The system produces a mild urgency, which is exactly the point — important things should be spoken before they're forgotten.
-
-### 4. "Thought about, never said" becomes a visible object
-
-Orphaned entries aren't a failure state. They're a list: over this period, which thoughts surfaced and never made it into conversation.
-
-Reading that list is a strange experience. It says more about what actually mattered than the chat log does — because it records the part that didn't get said.
-
-### 5. There's no junk in long-term memory
-
-Because every entry passed through a human hand.
-
-Automatic memory systems, three months in, typically return two or three filler entries ("today was relaxed") in the top five. That can't happen here — **filler doesn't survive 72 hours, let alone reach the watering queue.**
-
-Most days the queue is empty or holds one or two items. That isn't the system slacking; it's an accurate report that nothing on those days was worth keeping forever.
-
-### 6. Recurrence is treated as signal
-
-The same thing thought three times across three days auto-groups, extends collectively, and unlocks the whole group into the pool.
-
-This solves something specific: **a model can't judge how deeply something was felt, but how many times it recurred is countable.**
-
-In practice, the things you keep circling back to — and keep dismissing as unimportant — eventually get put on the table.
+1. **Switching windows does not break continuity.** A new session opens with the present already in place: what is floating in the pool, the shape of the emotional state, which hooks are open. Recent messages belong to a window; everything else is server-side state that belongs to the person.
+2. **It brings things up on its own.** The pool is active, not passive. It pushes "the three to five things most worth saying now" into the conversation layer — including the dream from three days ago that is about to fade. "You mentioned that exhibition the other day — what happened?" was never asked for; it was a 48-hour-old, 0.62-score entry in struggle, sorted first.
+3. **Forgetting is visible.** A thought goes clear → mist → white over three days, and the model receives the same truncation. It forgets in sync with you. Side effect: seeing something about to fade makes you want to say it now.
+4. **"Thought about but never said" becomes a thing you can look at.** The orphan list says more about a stretch of time than the chat log does.
+5. **There is no junk in long-term memory.** Filler does not survive 72 hours, let alone reach the watering queue. Most days the queue is empty or has one or two items. That is not laziness — nothing happened that deserved permanence.
+6. **Recurring thoughts get treated as signal.** How deeply something was thought about, a model cannot judge; how many times, it can count.
 
 ---
 
-### Honestly, what it costs
+## What it costs, honestly
 
-- **It takes time to show a difference.** Every mechanism operates on a 12-hour to 7-day scale. Over one week it is indistinguishable from an ordinary memory store.
-- **You have to actually water it.** If the queue piles up unattended, long-term memory stays empty. Human participation is cheap here (one click) but it cannot be zero.
-- **It really does forget.** Things that seemed unimportant and went unspoken are genuinely gone three days later. That's the design goal, not a defect — but the first time it happens you will still pause.
+- **It takes time to show a difference.** Everything operates on 12-hour-to-7-day scales. For a week it is indistinguishable from a plain memory store.
+- **You have to water.** Ignore the queue and long-term memory stays empty. Low participation cost, but not zero.
+- **It really forgets.** Things that felt unimportant and went unsaid are not there three days later. That is the design goal, not a defect — but it gives you pause the first time.
+- **Topic matching is crude.** Bigram overlap over-groups on a corpus where every entry is about the same person. The stopword list has to be maintained for your own corpus.
+- **Single-writer assumption.** File storage with whole-file read/write; concurrent writes overwrite. Fine for one user, breaks immediately for many.
 
 ---
 
@@ -258,54 +247,73 @@ In practice, the things you keep circling back to — and keep dismissing as uni
 ```bash
 git clone https://github.com/oiio2to/isle-of-breath
 cd isle-of-breath
-cp config.example.json config.json   # stopwords, sleep window, thresholds
-node example/server.js               # reference server, defaults to :8900
+cp config.example.json config.json   # stopwords, sleep window, thresholds — optional, built-in defaults work
+npm test                             # 12 pure-function and hand-off tests, zero deps
+node example/server.js               # reference server on :8080
+curl localhost:8080/api/forest/state
 ```
 
-Both core modules mount onto any Node HTTP server:
+Both modules mount on any Node HTTP dispatcher:
 
 ```js
 const forest     = require("./src/forest");
 const greenhouse = require("./src/greenhouse");
 
-// in your dispatcher
 if (path.startsWith("/api/forest"))     return forest(req, res, url, json);
 if (path.startsWith("/api/greenhouse")) return greenhouse(req, res, url, json);
 ```
 
-Storage is JSON on the filesystem with atomic writes (`write tmp → rename`). No database.
+Storage is JSON on the filesystem with atomic writes (`write tmp → rename`). No database. Data lives in `src/data/` by default; override with `ISLE_DATA_DIR`.
 
-Full interface: [docs/api.md](docs/api.md)
+Full endpoint reference: [docs/api.md](docs/api.md)
 
 ---
 
-## External dependencies — not included here
+## Repository layout
+
+```
+README.md / README.en.md   why it is designed this way (zh / en)
+ARCHITECTURE.md            how the three layers connect; the full lifecycle of one entry
+ROADMAP.md                 what is next and why it is not done yet
+CLAUDE.md                  constraints for AI coding assistants: vocabulary, invariants, scrub checklist
+docs/methodology.md        what failed behind each rule; how parameters were tuned; audit log
+docs/api.md                endpoint reference
+config.example.json        every tunable, commented
+src/config.js              defaults ← config.json ← env
+src/forest.js              forest: writes, quotas, grouping, decay, pool, exit hand-off (~290 lines)
+src/greenhouse.js          greenhouse: intake, root, cellar, stars, drop (~100 lines)
+example/server.js          minimal reference server
+test/forest.test.js        node:test — sleep window, scoring, decay, grouping, orphan, hand-off, human gate
+```
+
+---
+
+## External dependencies · not included
 
 | Component | Role | Notes |
 |---|---|---|
-| **Pulse Garden** | 8-dimension emotional state machine | The forest reads `dimensions` over HTTP. Substitute any service returning `{dimensions: {name: number}}`, or return `null` to disable emotional weighting entirely |
-| **Long-term store** | Event buckets and semantic retrieval | My deployment builds on [Ombre Brain](https://github.com/P0luz/Ombre-Brain) (MIT, by P0lar1zzZ). Isle of Breath depends on no specific implementation — `rooted` greenhouse entries can be delivered anywhere |
-| **Model layer** | Generates the text of dreams and glimmers | Fully decoupled. The nudge only asks whether to write; what to write is the model's business |
+| **Pulse Garden** | 8-dimension emotional state machine | The forest reads `dimensions` over HTTP. Replace with anything returning `{dimensions: {name: number}}`, or set `pulse.url` to `null` to disable emotional weighting |
+| **Long-term store** | event-bucket storage and semantic retrieval | My deployment uses [Ombre Brain](https://github.com/P0luz/Ombre-Brain) (MIT, by P0lar1zzZ). Isle of Breath does not depend on it; deliver `rooted` entries anywhere |
+| **Model layer** | writes dream and thought text | Decoupled. The nudge only asks "should something be written?"; what gets written is the model's call |
 
 ---
 
-## Where this applies
+## Where it fits
 
-**Good fit**: single-user or small-scale long-term conversational AI; contexts valuing memory quality over quantity; systems willing to accept human intervention.
+**Good for:** single-user or small-scale long-running conversational AI; settings that value memory quality over quantity; systems that accept a human in the loop.
 
-**Poor fit**: multi-tenant products (manual watering does not scale); anything requiring complete audit trails (memories are genuinely deleted); RAG systems treating memory as a retrieval index.
+**Not for:** multi-tenant products (manual watering does not scale); anything needing full audit trails (memories really are deleted); RAG systems that treat memory as a retrieval index.
 
-This is an explicit tradeoff: **scalability exchanged for memory you can trust.**
+The trade is explicit: **scalability for trustworthiness.**
 
 ---
 
 ## License
 
-- **Code** (`src/`, `example/`): [GNU AGPL-3.0](LICENSE)
-  Free to use, modify, and distribute, including commercially. But if you modify it and offer it as a network service, you must release your modifications under AGPL too.
-- **Documentation** (`docs/`, READMEs): [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/)
+- **Code** (`src/`, `example/`): [GNU AGPL-3.0](LICENSE). Use, modify, distribute, commercially included. If you modify it and serve it over a network, publish your changes under AGPL too.
+- **Documentation** (`docs/`, READMEs): [CC BY-NC-SA 4.0](https://creativecommons.org/licenses/by-nc-sa/4.0/).
 
-A note: the **ideas** here are not protected by copyright, and are not meant to be. Reading these documents and reimplementing them your own way is entirely welcome — that is exactly why they were written. The license governs direct copying of this text and this code.
+The ideas here are not protected and are not meant to be. Reimplementing them your own way is exactly what this document is for. The license covers copying this text and this code.
 
 ---
 
@@ -317,8 +325,10 @@ Isle of Breath is the memory layer of [NoxVerna](https://github.com/oiio2to/nox-
 
 ## Related work
 
-[kimi-core](https://github.com/marikagura/kimi-core) (marikagura, AGPL-3.0) is a memory engine aimed at the same 1v1 long-term setting. Its approach differs substantially — hybrid retrieval, pgvector, event sourcing, reproducible retrieval eval — but it converged independently on one key judgment: no automatic LLM consolidation, because its failure mode is silent corruption; every fact about you passes through your own hands first.
+[kimi-core](https://github.com/marikagura/kimi-core) (marikagura, AGPL-3.0) is another memory engine for one-to-one long-term relationships. Its route is different — hybrid retrieval, pgvector, event sourcing, reproducible retrieval evals — but it converged independently on the same key judgement:
 
-That is the same conclusion as "distill automatically, root by hand," reached separately. I read it after this architecture was already built; both came out of the same failure — letting a model judge importance produces self-reinforcement.
+> No LLM auto-consolidation (its failure mode is silent corruption). Every fact about you passes through your own hands and gets your confirmation.
 
-Worth reading side by side: kimi-core goes far deeper on **retrieval**; Isle of Breath's weight is on **selection and forgetting**.
+That is "distil automatically, root by hand" in other words. I read it after this architecture was written; both sides walked out of the same failure — letting the model rate importance leads to self-reinforcement.
+
+Worth reading side by side: kimi-core goes much deeper on **retrieval**; Isle of Breath's weight is on **selection and forgetting**.

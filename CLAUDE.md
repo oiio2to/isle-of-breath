@@ -20,19 +20,26 @@ Storage is JSON on the filesystem with atomic writes. There is no database and n
 ```
 README.md            中文主文档（source of truth）
 README.en.md         English equivalent — keep in sync
+ARCHITECTURE.md      how the three layers connect; full lifecycle of one entry
+ROADMAP.md           what is next and why it is not done yet
 CLAUDE.md            this file
 LICENSE              GNU AGPL-3.0 (code)
 NOTICE.md            dual-licensing statement, attribution
-config.example.json  stopwords, sleep window, thresholds
+config.example.json  every tunable, with comments
 src/
-  forest.js          ~240 lines
-  greenhouse.js      ~75 lines
+  config.js          defaults ← config.json ← env
+  forest.js          ~290 lines
+  greenhouse.js      ~100 lines
 example/
-  server.js          minimal reference HTTP server
+  server.js          minimal reference HTTP server (:8080)
+test/
+  forest.test.js     node:test, zero deps — run `npm test`
 docs/
-  methodology.md     the seven design principles, at length
+  methodology.md     why each rule exists, what failed, audit log
   api.md             endpoint reference
 ```
+
+Run `npm test` before and after any change to `src/`. Every invariant below has at least one test; if you change behaviour, change the test in the same commit.
 
 ## Domain vocabulary — use these consistently
 
@@ -56,13 +63,15 @@ Do not invent new names for these. If a concept needs a name it doesn't have, fl
 
 These are not implementation details. If a change would break one, stop and say so.
 
-1. **Entries expire and are deleted.** No archive, no soft-delete, no tombstone. `prune()` removes them.
+1. **Entries expire and are deleted.** Dreams at 72h. Thoughts go `orphan` (visible, out of the pool), are `archived` when pushed out of the active cap or when their group dies, and are hard-deleted `thoughtArchiveDays` later. No tombstones beyond that. `prune()` does all of it and hands eligible entries to the greenhouse first.
 2. **Writes are quota'd.** Daily and per-night caps are load-bearing, not configuration niceties.
 3. **`spoken` is the only life-extension path.** Do not add other ways to boost longevity.
 4. **Forest → long-term requires a human action.** Never add an automatic path from greenhouse `pending` to `rooted`.
 5. **Significance is never self-rated by a model.** `score` comes from `aboutOther` / `novel` / `hook` flags plus `emoScore`. Do not add a "let the model score it" path.
 6. **The nudge may PASS.** Any scheduled generator must be able to exit without writing.
 7. **Decay is computed at read time.** `thoughtView` / `dreamView` never mutate and never write. Keep it that way — persisted decay makes the state unreproducible.
+8. **The orphan deadline and the half-life are the same number.** `thoughtDeadline()` is the single source; do not reintroduce a hard-coded 12h anywhere.
+9. **An unlocked group takes one seat in the pool.** Unlock waives the score gate, not the orphan check, and the pool dedupes by `groupKey`. Letting every member in floods the pool (it happened).
 
 ## Code conventions
 

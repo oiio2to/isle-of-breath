@@ -7,7 +7,7 @@ This repository is licensed in two parts.
 | Path | License |
 |---|---|
 | `src/`, `example/`, `config.example.json` | GNU AGPL-3.0 — see [LICENSE](LICENSE) |
-| `docs/`, `README.md`, `README.en.md`, `CLAUDE.md`, this file | CC BY-NC-SA 4.0 |
+| `docs/`, `README.md`, `README.en.md`, `ARCHITECTURE.md`, `ROADMAP.md`, `CLAUDE.md`, this file | CC BY-NC-SA 4.0 |
 
 代码部分采用 GNU AGPL-3.0；文档部分采用 CC BY-NC-SA 4.0（署名 · 非商业性使用 · 相同方式共享）。
 

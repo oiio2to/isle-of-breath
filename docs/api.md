@@ -10,9 +10,9 @@ All endpoints return JSON. Write endpoints return `409` on quota/state conflicts
 
 ### `GET /api/forest/state`
 
-返回森林的完整状态。这是唯一的读取接口——衰减、雾化、孤悬判定都在这里实时计算。
+返回森林的完整状态。这是唯一的读取接口——衰减、雾化在这里实时计算；孤悬判定、寐川到期删除、瞳荧归档与温室交接在每次请求前的 `prune()` 里完成。
 
-Returns the full forest state. This is the only read endpoint; decay, fogging, and orphan detection are all computed here at read time.
+Returns the full forest state. This is the only read endpoint; decay and fogging are computed at read time. Orphan detection, dream expiry, thought retirement and greenhouse hand-off happen in `prune()`, which runs before every request.
 
 ```jsonc
 {
@@ -27,7 +27,7 @@ Returns the full forest state. This is the only read endpoint; decay, fogging, a
   },
   "dreams":   [ /* DreamView，按时间倒序 */ ],
   "thoughts": [ /* ThoughtView，已归档的不返回 */ ],
-  "pool":     [ /* 话题池，挣扎态优先，其次按分数 */ ],
+  "pool":     [ /* 话题池，挣扎态优先，其次按分数；解锁的组只占一个位子，带 groupSize */ ],
   "layout":   { "<id>": { "x": 0, "y": 0, "w": 17 } }
 }
 ```
@@ -83,7 +83,7 @@ Returns the full forest state. This is the only read endpoint; decay, fogging, a
 行为分支：
 
 - **同日主题重复** → 合并到已有条目，`count + 1`，**不消耗配额**，返回 `{ ok, merged: true, id, count }`
-- **跨天主题重复** → 自动归组；组内满 3 的倍数时解锁，整组直进话题池
+- **跨天主题重复** → 自动归组，仍在 72h 内的旧成员孤悬被收回；组内满 3 的倍数时解锁，免分数门槛进池（整组一个位子）
 - **配额已满**（当日 3 条）→ `409`
 
 注意：孤悬的条目**不退还配额**。想过就是想过。
@@ -117,9 +117,9 @@ Returns the full forest state. This is the only read endpoint; decay, fogging, a
 
 ### `GET /api/greenhouse/state`
 
-每次读取时执行一次 `sweepForest()`：扫描森林中**已到期且意义值 ≥0.5** 的条目，在其被清除前整卡迁入温室。已迁移的 ID 记录在 `migrated` 中，不会重复迁入。
+主交接发生在森林侧的 `prune()`（寐川删前、瞳荧归档时调用 `intake()`）。每次读取温室状态时再执行一次 `sweepForest()` 兜底：扫描森林中**已孤悬或已归档、意义值 ≥0.5** 的瞳荧与到期寐川。已迁移的 ID 记录在 `migrated` 中，不会重复迁入。
 
-Each read runs `sweepForest()`: entries in the forest that have expired **and** score ≥0.5 are migrated in whole before deletion. Migrated IDs are tracked so nothing migrates twice.
+The primary hand-off happens in the forest's `prune()` (it calls `intake()` before a dream is deleted and when a thought is retired). Each greenhouse read additionally runs `sweepForest()` as a safety net over **orphaned or archived** thoughts and expired dreams with score ≥0.5. Migrated IDs are tracked so nothing migrates twice.
 
 ```jsonc
 {
@@ -143,7 +143,7 @@ Each read runs `sweepForest()`: entries in the forest that have expired **and** 
 { "title": "可选，默认取正文前 18 字", "text": "…", "src": "manual" }
 ```
 
-正文短于 10 字返回 `422`。
+正文短于 `minBoneChars`（默认 600 字）返回 `422`。
 
 ---
 
@@ -156,7 +156,7 @@ Each read runs `sweepForest()`: entries in the forest that have expired **and** 
 | act | 作用 |
 |---|---|
 | `root` | **浇水生根**：确认为长期记忆 |
-| `edit` | 改写正文后生根（`text` ≥10 字才生效） |
+| `edit` | 改写正文后生根；`text` 不得短于 `minBoneChars`（默认 600），空 `text` 则只生根不改写 |
 | `cellar` | 入窖：确认过但暂不进长期记忆 |
 | `stars` | 评级 `1–5`，参数 `stars` |
 | `drop` | 丢弃 |

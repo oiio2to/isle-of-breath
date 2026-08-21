@@ -1,0 +1,13 @@
+{
+  "name": "isle-of-breath",
+  "version": "0.3.0",
+  "description": "息之洲 · A layered memory architecture for long-term conversational AI, designed to forget.",
+  "license": "AGPL-3.0",
+  "private": true,
+  "engines": { "node": ">=18" },
+  "scripts": {
+    "start": "node example/server.js",
+    "test": "node --test test/*.test.js"
+  },
+  "repository": { "type": "git", "url": "https://github.com/oiio2to/isle-of-breath.git" }
+}
